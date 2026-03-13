@@ -39,6 +39,10 @@
     .toast-pop { animation: toastIn 0.35s cubic-bezier(0.34, 1.4, 0.64, 1) forwards; }
     @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(16px) scale(0.92); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
     .share-btn-glow { box-shadow: 0 0 16px rgba(139,92,246,0.45); }
+    .drawer { position: absolute; top: 0; left: 0; bottom: 0; z-index: 40; width: 280px; background: #0d0d14; border-right: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+    .drawer.open { transform: translateX(0); }
+    .drawer-overlay { position: absolute; inset: 0; z-index: 39; background: rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+    .drawer-overlay.open { opacity: 1; pointer-events: auto; }
   </style>
 </head>
 <body>
@@ -46,6 +50,26 @@
 
 <script type="text/babel">
 const { useState, useRef, useEffect, useCallback, useMemo } = React;
+
+// ─── useLocalStorage 커스텀 훅 ────────────────────────────
+const useLocalStorage = (key, defaultValue) => {
+  const [value, setValue] = useState(() => {
+    try {
+      const stored = localStorage.getItem(key);
+      return stored !== null ? JSON.parse(stored) : defaultValue;
+    } catch {
+      return defaultValue;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  }, [key, value]);
+
+  return [value, setValue];
+};
 
 // ─── 아이콘 컴포넌트 ───────────────────────────────────────
 const Icon = ({ name, size = 24, className = "" }) => {
@@ -164,6 +188,15 @@ const SHARE_PREVIEW_GRADIENTS = [
 ];
 
 const SHARE_TAGS = ["AI", "생활", "교육", "여행", "건강", "개발", "엔터테인먼트", "생산성"];
+
+// ─── 기본 메시지 (대화 없을 때 표시) ──────────────────────
+const DEFAULT_MESSAGES = [
+  {
+    id: 1, role: "ai",
+    text: "안녕하세요! 저는 AppForge AI예요 👋\n\n어떤 앱을 만들고 싶으신가요? 아이디어를 말씀해주세요!",
+    hasPreview: false
+  }
+];
 
 // ─── AI 모델 데이터 ───────────────────────────────────────
 const AI_MODELS = [
@@ -436,43 +469,103 @@ const ModelPickerModal = ({ selectedModelId, onSelect, onClose }) => (
   </div>
 );
 
+// ─── CONVERSATION DRAWER ──────────────────────────────────
+const ConversationDrawer = ({ isOpen, onClose, conversations, currentConvId, onSelectConv, onNewConv }) => (
+  <>
+    <div className={`drawer-overlay ${isOpen ? "open" : ""}`} onClick={onClose} />
+    <div className={`drawer ${isOpen ? "open" : ""}`}>
+      <div className="flex items-center justify-between px-4 pt-5 pb-3 flex-shrink-0">
+        <h2 className="text-white font-bold text-base">대화 목록</h2>
+        <button onClick={onClose} className="w-7 h-7 rounded-lg bg-white/10 flex items-center justify-center">
+          <Icon name="close" size={14} className="text-white/60" />
+        </button>
+      </div>
+      <div className="px-4 pb-3 flex-shrink-0">
+        <button
+          onClick={onNewConv}
+          className="w-full py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold flex items-center justify-center gap-2 active:scale-[0.98] transition-all">
+          <Icon name="plus" size={16} />새 대화
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto chat-scroll px-3 pb-4 space-y-1">
+        {conversations.length === 0 ? (
+          <p className="text-white/30 text-xs text-center py-8">대화 기록이 없어요</p>
+        ) : conversations.map(conv => (
+          <button
+            key={conv.id}
+            onClick={() => onSelectConv(conv.id)}
+            className={`w-full text-left px-3 py-2.5 rounded-xl transition-all active:scale-[0.98]
+              ${currentConvId === conv.id
+                ? "bg-violet-600/20 border border-violet-500/40"
+                : "bg-white/5 border border-transparent hover:bg-white/8"}`}>
+            <p className="text-white/80 text-sm font-medium truncate">{conv.title}</p>
+            <p className="text-white/30 text-xs mt-0.5">
+              {new Date(conv.createdAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}
+            </p>
+          </button>
+        ))}
+      </div>
+    </div>
+  </>
+);
+
 // ─── CREATE TAB ───────────────────────────────────────────
-const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker }) => {
+const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker, conversations, setConversations, currentConvId, setCurrentConvId, onAddToLibrary }) => {
   const currentModel = getModelById(selectedModelId);
-  const [messages, setMessages] = useState([
-    {
-      id: 1, role: "ai",
-      text: "안녕하세요! 저는 AppForge AI예요 👋\n\n어떤 앱을 만들고 싶으신가요? 아이디어를 말씀해주세요!",
-      hasPreview: false
-    }
-  ]);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
 
+  const messages = useMemo(() => {
+    if (!currentConvId) return DEFAULT_MESSAGES;
+    const conv = conversations.find(c => c.id === currentConvId);
+    return conv ? conv.messages : DEFAULT_MESSAGES;
+  }, [currentConvId, conversations]);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
-  // ✅ 실제 AI API를 호출하는 함수
   const handleSend = useCallback(async () => {
     const text = input.trim();
     if (!text || isTyping) return;
 
     const userMsg = { id: Date.now(), role: "user", text };
-    const updatedMessages = [...messages, userMsg];
-    setMessages(updatedMessages);
     setInput("");
     setIsTyping(true);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
+
+    let convId = currentConvId;
+    let currentMessages;
+
+    if (!convId) {
+      // 첫 메시지 → 새 대화 자동 생성
+      const newId = Date.now();
+      const newConv = {
+        id: newId,
+        title: text.slice(0, 20),
+        messages: [...DEFAULT_MESSAGES, userMsg],
+        createdAt: Date.now(),
+      };
+      setConversations(prev => [newConv, ...prev]);
+      setCurrentConvId(newId);
+      convId = newId;
+      currentMessages = newConv.messages;
+    } else {
+      currentMessages = [...messages, userMsg];
+      setConversations(prev => prev.map(c =>
+        c.id === convId ? { ...c, messages: currentMessages } : c
+      ));
+    }
 
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          messages: updatedMessages.map(m => ({
+          messages: currentMessages.map(m => ({
             role: m.role === 'ai' ? 'assistant' : 'user',
             content: m.text
           }))
@@ -480,24 +573,40 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker }) => {
       });
       const data = await res.json();
       setIsTyping(false);
-      setMessages(prev => [...prev, {
+      const aiMsg = {
         id: Date.now() + 1,
         role: "ai",
         text: data.content,
         hasPreview: !!data.appData,
         appTitle: data.appData?.appName,
         appIcon: data.appData?.appIcon,
-      }]);
+      };
+      setConversations(prev => prev.map(c =>
+        c.id === convId ? { ...c, messages: [...c.messages, aiMsg] } : c
+      ));
+      // 앱 생성 시 Library에 자동 추가
+      if (data.appData) {
+        onAddToLibrary({
+          id: Date.now() + 2,
+          name: data.appData.appName,
+          icon: data.appData.appIcon,
+          color: "from-violet-400 to-purple-500",
+          lastUsed: "방금 전",
+          category: "AI",
+        });
+      }
     } catch (e) {
       setIsTyping(false);
-      setMessages(prev => [...prev, {
-        id: Date.now() + 1,
-        role: "ai",
-        text: "오류가 발생했어요. 잠시 후 다시 시도해주세요. 😥",
-        hasPreview: false,
-      }]);
+      setConversations(prev => prev.map(c =>
+        c.id === convId ? { ...c, messages: [...c.messages, {
+          id: Date.now() + 1,
+          role: "ai",
+          text: "오류가 발생했어요. 잠시 후 다시 시도해주세요. 😥",
+          hasPreview: false,
+        }] } : c
+      ));
     }
-  }, [input, messages, isTyping]);
+  }, [input, messages, isTyping, currentConvId, setConversations, setCurrentConvId, onAddToLibrary]);
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -509,27 +618,52 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker }) => {
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
   };
 
-  const CHAT_SUGGESTIONS = [
-    "할 일 관리 앱 만들어줘",
-    "날씨 알림 앱 만들고 싶어",
-    "영어 단어 암기 앱 만들어줘",
-    "운동 기록 앱 만들어줘",
-  ];
+  const handleNewConv = () => {
+    setCurrentConvId(null);
+    setDrawerOpen(false);
+    setInput("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+  };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
+      <ConversationDrawer
+        isOpen={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        conversations={conversations}
+        currentConvId={currentConvId}
+        onSelectConv={(id) => { setCurrentConvId(id); setDrawerOpen(false); }}
+        onNewConv={handleNewConv}
+      />
+
       <div className="px-5 pt-5 pb-3 flex-shrink-0">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-white text-2xl font-bold">Create</h1>
-            <p className="text-white/40 text-sm mt-0.5">AI와 함께 앱을 만들어보세요</p>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <button
+              onClick={() => setDrawerOpen(true)}
+              className="w-8 h-8 rounded-xl bg-white/8 border border-white/10 flex items-center justify-center text-white/60 hover:bg-white/12 active:scale-95 transition-all flex-shrink-0">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                <path d="M3 6H21M3 12H21M3 18H21" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+              </svg>
+            </button>
+            <div className="min-w-0">
+              <h1 className="text-white text-2xl font-bold">Create</h1>
+              <p className="text-white/40 text-sm mt-0.5">AI와 함께 앱을 만들어보세요</p>
+            </div>
           </div>
-          <button onClick={onOpenModelPicker}
-            className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/8 border border-white/10 hover:bg-white/12 active:scale-95 transition-all">
-            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: currentModel.gradient }} />
-            <span className="text-white/80 text-xs font-semibold">{currentModel.shortName}</span>
-            <Icon name="chevron" size={13} className="text-white/40" />
-          </button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleNewConv}
+              className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-violet-600/20 border border-violet-500/30 text-violet-300 text-xs font-semibold hover:bg-violet-600/30 active:scale-95 transition-all">
+              <Icon name="plus" size={12} />새 대화
+            </button>
+            <button onClick={onOpenModelPicker}
+              className="flex items-center gap-2 px-3 py-2 rounded-2xl bg-white/8 border border-white/10 hover:bg-white/12 active:scale-95 transition-all">
+              <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: currentModel.gradient }} />
+              <span className="text-white/80 text-xs font-semibold">{currentModel.shortName}</span>
+              <Icon name="chevron" size={13} className="text-white/40" />
+            </button>
+          </div>
         </div>
         {messages.length <= 1 && (
           <div className="flex gap-2 mt-4 overflow-x-auto pb-1 story-scroll">
@@ -726,8 +860,7 @@ const StoreTab = ({ posts, setPosts }) => {
 };
 
 // ─── LIBRARY TAB ──────────────────────────────────────────
-const LibraryTab = () => {
-  const [apps, setApps] = useState(LIBRARY_APPS);
+const LibraryTab = ({ apps, setApps }) => {
   const [search, setSearch] = useState("");
 
   const filtered = apps.filter(app =>
@@ -816,13 +949,23 @@ const LibraryTab = () => {
 // ─── 메인 앱 ──────────────────────────────────────────────
 const App = () => {
   const [activeTab, setActiveTab] = useState("create");
-  const [posts, setPosts] = useState(STORE_POSTS);
+  const [posts, setPosts] = useLocalStorage('appforge_posts', STORE_POSTS);
+  const [libraryApps, setLibraryApps] = useLocalStorage('appforge_library', LIBRARY_APPS);
+  const [conversations, setConversations] = useLocalStorage('appforge_conversations', []);
+  const [currentConvId, setCurrentConvId] = useLocalStorage('appforge_current_conv', null);
   const [shareDraft, setShareDraft] = useState(null);
   const [toast, setToast] = useState(null);
   const [selectedModelId, setSelectedModelId] = useState("gpt-4o-mini");
   const [showModelPicker, setShowModelPicker] = useState(false);
 
   const handleShareToStore = useCallback((appData) => setShareDraft(appData), []);
+
+  const handleAddToLibrary = useCallback((appItem) => {
+    setLibraryApps(prev => {
+      if (prev.find(a => a.name === appItem.name)) return prev;
+      return [appItem, ...prev];
+    });
+  }, [setLibraryApps]);
 
   const handleConfirmShare = useCallback((data) => {
     const newPost = {
@@ -836,11 +979,20 @@ const App = () => {
       preview: data.preview, rating: 5.0, downloads: "0",
     };
     setPosts(prev => [newPost, ...prev]);
+    // Store 공유 시 Library 추가
+    handleAddToLibrary({
+      id: Date.now() + 1,
+      name: data.appName,
+      icon: data.appIcon,
+      color: "from-violet-400 to-purple-500",
+      lastUsed: "방금 전",
+      category: data.tags[0] || "AI",
+    });
     setShareDraft(null);
-    setToast("Store에 공유됐어요! ✨");
+    setToast("Store에 공유됐어요! 라이브러리에도 추가됐어요 ✨");
     setTimeout(() => setToast(null), 3000);
     setActiveTab("store");
-  }, []);
+  }, [handleAddToLibrary]);
 
   const tabs = [
     { id: "create",  label: "Create",  icon: "sparkles" },
@@ -874,9 +1026,20 @@ const App = () => {
         </div>
 
         <div className="flex-1 overflow-hidden">
-          {activeTab === "create"  && <CreateTab onShareToStore={handleShareToStore} selectedModelId={selectedModelId} onOpenModelPicker={() => setShowModelPicker(true)} />}
+          {activeTab === "create" && (
+            <CreateTab
+              onShareToStore={handleShareToStore}
+              selectedModelId={selectedModelId}
+              onOpenModelPicker={() => setShowModelPicker(true)}
+              conversations={conversations}
+              setConversations={setConversations}
+              currentConvId={currentConvId}
+              setCurrentConvId={setCurrentConvId}
+              onAddToLibrary={handleAddToLibrary}
+            />
+          )}
           {activeTab === "store"   && <StoreTab posts={posts} setPosts={setPosts} />}
-          {activeTab === "library" && <LibraryTab />}
+          {activeTab === "library" && <LibraryTab apps={libraryApps} setApps={setLibraryApps} />}
         </div>
 
         {showModelPicker && (

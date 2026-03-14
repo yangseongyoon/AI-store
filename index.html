@@ -257,7 +257,30 @@ const TypingIndicator = () => (
 );
 
 // ─── 앱 미리보기 카드 ─────────────────────────────────────
-const AppPreviewCard = ({ title = "새 앱", icon = "✨", onShare }) => (
+// ─── 앱 실행 모달 ─────────────────────────────────────────
+const RunModal = ({ appCode, appTitle, onClose }) => (
+  <div className="absolute inset-0 z-50 flex flex-col bg-[#0a0a0f] fade-in">
+    <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
+      <div className="flex items-center gap-2">
+        <button onClick={onClose} className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-white/60">
+          <Icon name="close" size={16} />
+        </button>
+        <span className="text-white font-semibold text-sm">{appTitle}</span>
+      </div>
+      <span className="text-white/30 text-xs">실행 중</span>
+    </div>
+    <iframe
+      srcDoc={appCode}
+      className="flex-1 w-full border-none"
+      sandbox="allow-scripts allow-same-origin allow-forms"
+      title={appTitle}
+    />
+  </div>
+);
+
+const AppPreviewCard = ({ title = "새 앱", icon = "✨", appCode, onShare }) => {
+  const [showRun, setShowRun] = useState(false);
+  return (
   <div className="mt-3 rounded-2xl overflow-hidden border border-white/10 bg-white/5 fade-in">
     <div className="bg-gradient-to-r from-violet-600 to-purple-700 px-4 py-3 flex items-center gap-2">
       <span className="text-lg">{icon}</span>
@@ -278,7 +301,10 @@ const AppPreviewCard = ({ title = "새 앱", icon = "✨", onShare }) => (
       </div>
     </div>
     <div className="px-4 pb-3 flex gap-2">
-      <button className="flex-1 py-1.5 rounded-lg bg-violet-600 text-white text-xs font-semibold flex items-center justify-center gap-1">
+      <button
+        onClick={() => appCode && setShowRun(true)}
+        className={`flex-1 py-1.5 rounded-lg text-white text-xs font-semibold flex items-center justify-center gap-1 transition-all active:scale-95
+          ${appCode ? "bg-violet-600 hover:bg-violet-700" : "bg-white/20 text-white/40 cursor-not-allowed"}`}>
         <Icon name="play" size={10} />실행
       </button>
       <button className="flex-1 py-1.5 rounded-lg bg-white/10 text-white/70 text-xs flex items-center justify-center gap-1">
@@ -290,8 +316,12 @@ const AppPreviewCard = ({ title = "새 앱", icon = "✨", onShare }) => (
         <Icon name="store" size={10} />Store 공유
       </button>
     </div>
+    {showRun && appCode && (
+      <RunModal appCode={appCode} appTitle={title} onClose={() => setShowRun(false)} />
+    )}
   </div>
-);
+  );
+};
 
 // ─── SHARE MODAL ─────────────────────────────────────────
 const ShareModal = ({ appData, onClose, onConfirm }) => {
@@ -580,6 +610,7 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker, convers
         hasPreview: !!data.appData,
         appTitle: data.appData?.appName,
         appIcon: data.appData?.appIcon,
+        appCode: data.appCode || null,
       };
       setConversations(prev => prev.map(c =>
         c.id === convId ? { ...c, messages: [...c.messages, aiMsg] } : c
@@ -697,6 +728,7 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker, convers
                 <AppPreviewCard
                   title={msg.appTitle || "새 앱"}
                   icon={msg.appIcon || "✨"}
+                  appCode={msg.appCode}
                   onShare={onShareToStore}
                 />
               )}

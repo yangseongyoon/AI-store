@@ -8,64 +8,87 @@ module.exports = async (req, res) => {
   const { messages } = req.body;
 
   try {
+    const formattedMessages = messages.map(m => {
+      const role = m.role === 'ai' ? 'assistant' : 'user';
+      if (m.image) {
+        return {
+          role,
+          content: [
+            ...(m.text ? [{ type: 'text', text: m.text }] : []),
+            { type: 'image_url', image_url: { url: m.image } }
+          ]
+        };
+      }
+      return { role, content: m.text || '' };
+    });
+
     const completion = await client.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
-          content: `당신은 AppForge의 AI 어시스턴트입니다. 사용자가 앱 아이디어를 말하면 실제로 동작하는 앱을 만들어주는 역할입니다.
+          content: `당신은 AppForge의 AI 앱 개발자입니다. 사용자가 앱 아이디어를 말하면 즉시 실제로 동작하는 앱을 만들어주세요.
 
-사용자가 앱 만들기를 요청하면:
-1. 앱의 주요 기능을 한국어로 간단히 설명 (2-3문장)
+사용자가 앱을 요청하면 (만들어줘, 만들고 싶어, 만들어봐 등):
+1. 앱 소개를 한국어로 1-2문장 작성
 2. 아래 형식으로 완전한 HTML 코드 생성
-3. 아래 형식으로 앱 메타데이터 추가
+3. APP_DATA 메타데이터 추가
 
-코드 형식 (정확히 지켜주세요):
+코드 형식:
 \`\`\`html
 <!DOCTYPE html>
-<html>
-...완전한 HTML 코드...
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>앱이름</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0a0f;color:white;font-family:-apple-system,sans-serif;max-width:390px;margin:0 auto;min-height:100vh;padding:20px}
+</style>
+</head>
+<body>
+<!-- 실제 동작하는 앱 -->
+<script>/* 실제 동작하는 JS */</script>
+</body>
 </html>
 \`\`\`
 
-메타데이터 형식 (코드 블록 바로 뒤에):
-APP_DATA:{"appName":"앱이름","appIcon":"이모지","appDescription":"한줄설명","hasApp":true}
+APP_DATA:{"appName":"앱이름","appIcon":"이모지","appDescription":"설명","hasApp":true}
 
-코드 작성 규칙:
-- 완전한 standalone HTML 파일 (CDN 사용 가능)
-- 한국어 UI
-- 모바일 친화적 (max-width: 390px 기준)
-- 다크 테마 권장 (배경: #0a0a0f, 텍스트: white)
-- Tailwind CSS CDN 사용 가능
+규칙:
+- 요청받은 앱을 정확히 만들 것 (To do list 요청 -> To do list 생성)
+- 완전한 standalone HTML
+- 한국어 UI, 다크 테마
 - localStorage로 데이터 저장
-- 실제로 동작하는 기능 완벽 구현
-- 예쁜 UI/UX
+- 모든 기능이 실제로 동작할 것
 
-일반 대화에는 코드/APP_DATA 없이 자연스럽게 한국어로만 답변하세요.`
+이미지 첨부시: 이미지를 분석해서 관련 앱 제안 또는 요청에 활용
+일반 대화(인사 등)는 코드 없이 한국어로 짧게 답변`
         },
-        ...messages
+        ...formattedMessages
       ],
-      max_tokens: 3000,
+      max_tokens: 4000,
     });
 
     const content = completion.choices[0].message.content;
 
-    // HTML 코드 블록 추출
     const codeMatch = content.match(/```html\n([\s\S]*?)\n```/);
     const appCode = codeMatch ? codeMatch[1] : null;
 
-    // APP_DATA 추출
-    const dataMatch = content.match(/APP_DATA:(\{[^}]+\})/);
+    const dataMatch = content.match(/APP_DATA:\s*(\{[^}]+\})/);
     let appData = null;
     if (dataMatch) {
       try { appData = JSON.parse(dataMatch[1]); } catch (e) {}
     }
+    if (!appData && appCode) {
+      appData = { appName: "새 앱", appIcon: "✨", appDescription: "AI가 만든 앱", hasApp: true };
+    }
 
-    // 코드블록 + APP_DATA 제거한 텍스트
-    const cleanContent = content
+    const cleanContent = (content
       .replace(/```html\n[\s\S]*?\n```/, '')
-      .replace(/APP_DATA:\{[^}]+\}/, '')
-      .trim();
+      .replace(/APP_DATA:\s*\{[^}]+\}/, '')
+      .trim()) || (appCode ? "앱을 만들었어요! 실행 버튼을 눌러보세요." : "");
 
     res.json({ content: cleanContent, appData, appCode });
   } catch (error) {

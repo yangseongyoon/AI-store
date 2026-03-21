@@ -39,6 +39,7 @@
     .toast-pop { animation: toastIn 0.35s cubic-bezier(0.34, 1.4, 0.64, 1) forwards; }
     @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(16px) scale(0.92); } to { opacity: 1; transform: translateX(-50%) translateY(0) scale(1); } }
     .share-btn-glow { box-shadow: 0 0 16px rgba(139,92,246,0.45); }
+    @keyframes wiggle { 0%,100% { transform: rotate(-2deg); } 50% { transform: rotate(2deg); } }
     .drawer { position: absolute; top: 0; left: 0; bottom: 0; z-index: 40; width: 280px; background: #0d0d14; border-right: 1px solid rgba(255,255,255,0.08); display: flex; flex-direction: column; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
     .drawer.open { transform: translateX(0); }
     .drawer-overlay { position: absolute; inset: 0; z-index: 39; background: rgba(0,0,0,0.5); opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
@@ -257,6 +258,25 @@ const TypingIndicator = () => (
 );
 
 // ─── 앱 미리보기 카드 ─────────────────────────────────────
+// ─── 코드 보기 모달 ───────────────────────────────────────
+const CodeModal = ({ appCode, appTitle, onClose }) => (
+  <div className="absolute inset-0 z-50 flex flex-col bg-[#0a0a0f] fade-in">
+    <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-shrink-0">
+      <div className="flex items-center gap-2">
+        <button onClick={onClose} className="w-8 h-8 rounded-xl bg-white/10 flex items-center justify-center text-white/60">
+          <Icon name="close" size={16} />
+        </button>
+        <span className="text-white font-semibold text-sm">{appTitle} — 코드</span>
+      </div>
+    </div>
+    <div className="flex-1 overflow-y-auto p-4">
+      <pre className="text-green-400 text-xs leading-relaxed whitespace-pre-wrap break-all font-mono bg-white/5 rounded-xl p-4">
+        {appCode}
+      </pre>
+    </div>
+  </div>
+);
+
 // ─── 앱 실행 모달 ─────────────────────────────────────────
 const RunModal = ({ appCode, appTitle, onClose }) => (
   <div className="absolute inset-0 z-50 flex flex-col bg-[#0a0a0f] fade-in">
@@ -280,6 +300,7 @@ const RunModal = ({ appCode, appTitle, onClose }) => (
 
 const AppPreviewCard = ({ title = "새 앱", icon = "✨", appCode, onShare }) => {
   const [showRun, setShowRun] = useState(false);
+  const [showCode, setShowCode] = useState(false);
   return (
   <div className="mt-3 rounded-2xl overflow-hidden border border-white/10 bg-white/5 fade-in">
     <div className="bg-gradient-to-r from-violet-600 to-purple-700 px-4 py-3 flex items-center gap-2">
@@ -296,9 +317,7 @@ const AppPreviewCard = ({ title = "새 앱", icon = "✨", appCode, onShare }) =
       <div className="h-3 bg-white/10 rounded-full w-1/2"></div>
       <div className="h-8 bg-white/10 rounded-xl mt-3"></div>
       <div className="h-8 bg-white/10 rounded-xl"></div>
-      <div className="h-8 bg-gradient-to-r from-violet-500/50 to-purple-600/50 rounded-xl flex items-center justify-center">
-        <span className="text-white/70 text-xs font-medium">앱 실행하기</span>
-      </div>
+
     </div>
     <div className="px-4 pb-3 flex gap-2">
       <button
@@ -307,7 +326,10 @@ const AppPreviewCard = ({ title = "새 앱", icon = "✨", appCode, onShare }) =
           ${appCode ? "bg-violet-600 hover:bg-violet-700" : "bg-white/20 text-white/40 cursor-not-allowed"}`}>
         <Icon name="play" size={10} />실행
       </button>
-      <button className="flex-1 py-1.5 rounded-lg bg-white/10 text-white/70 text-xs flex items-center justify-center gap-1">
+      <button
+        onClick={() => appCode && setShowCode(true)}
+        className={`flex-1 py-1.5 rounded-lg text-xs flex items-center justify-center gap-1 transition-all active:scale-95
+          ${appCode ? "bg-white/10 text-white/70 hover:bg-white/15" : "bg-white/5 text-white/30 cursor-not-allowed"}`}>
         <Icon name="code" size={10} />코드 보기
       </button>
       <button
@@ -318,6 +340,9 @@ const AppPreviewCard = ({ title = "새 앱", icon = "✨", appCode, onShare }) =
     </div>
     {showRun && appCode && (
       <RunModal appCode={appCode} appTitle={title} onClose={() => setShowRun(false)} />
+    )}
+    {showCode && appCode && (
+      <CodeModal appCode={appCode} appTitle={title} onClose={() => setShowCode(false)} />
     )}
   </div>
   );
@@ -500,7 +525,7 @@ const ModelPickerModal = ({ selectedModelId, onSelect, onClose }) => (
 );
 
 // ─── CONVERSATION DRAWER ──────────────────────────────────
-const ConversationDrawer = ({ isOpen, onClose, conversations, currentConvId, onSelectConv, onNewConv }) => (
+const ConversationDrawer = ({ isOpen, onClose, conversations, currentConvId, onSelectConv, onNewConv, onDeleteConv }) => (
   <>
     <div className={`drawer-overlay ${isOpen ? "open" : ""}`} onClick={onClose} />
     <div className={`drawer ${isOpen ? "open" : ""}`}>
@@ -521,18 +546,22 @@ const ConversationDrawer = ({ isOpen, onClose, conversations, currentConvId, onS
         {conversations.length === 0 ? (
           <p className="text-white/30 text-xs text-center py-8">대화 기록이 없어요</p>
         ) : conversations.map(conv => (
-          <button
-            key={conv.id}
-            onClick={() => onSelectConv(conv.id)}
-            className={`w-full text-left px-3 py-2.5 rounded-xl transition-all active:scale-[0.98]
-              ${currentConvId === conv.id
-                ? "bg-violet-600/20 border border-violet-500/40"
-                : "bg-white/5 border border-transparent hover:bg-white/8"}`}>
-            <p className="text-white/80 text-sm font-medium truncate">{conv.title}</p>
-            <p className="text-white/30 text-xs mt-0.5">
-              {new Date(conv.createdAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}
-            </p>
-          </button>
+          <div key={conv.id} className={`flex items-center gap-1 rounded-xl transition-all
+            ${currentConvId === conv.id ? "bg-violet-600/20 border border-violet-500/40" : "bg-white/5 border border-transparent hover:bg-white/8"}`}>
+            <button
+              onClick={() => onSelectConv(conv.id)}
+              className="flex-1 text-left px-3 py-2.5 min-w-0">
+              <p className="text-white/80 text-sm font-medium truncate">{conv.title}</p>
+              <p className="text-white/30 text-xs mt-0.5">
+                {new Date(conv.createdAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}
+              </p>
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onDeleteConv(conv.id); }}
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all flex-shrink-0 mr-1.5">
+              <Icon name="trash" size={13} />
+            </button>
+          </div>
         ))}
       </div>
     </div>
@@ -545,8 +574,23 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker, convers
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
+  const [attachedImage, setAttachedImage] = useState(null); // { dataUrl, name }
   const chatEndRef = useRef(null);
   const textareaRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('현재 이미지 파일만 지원해요 (jpg, png, gif, webp)');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => setAttachedImage({ dataUrl: ev.target.result, name: file.name });
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
 
   const messages = useMemo(() => {
     if (!currentConvId) return DEFAULT_MESSAGES;
@@ -560,10 +604,16 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker, convers
 
   const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text || isTyping) return;
+    if ((!text && !attachedImage) || isTyping) return;
 
-    const userMsg = { id: Date.now(), role: "user", text };
+    const userMsg = {
+      id: Date.now(),
+      role: "user",
+      text: text || (attachedImage ? "이미지를 첨부했어요." : ""),
+      image: attachedImage?.dataUrl || null,
+    };
     setInput("");
+    setAttachedImage(null);
     setIsTyping(true);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
 
@@ -607,9 +657,9 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker, convers
         id: Date.now() + 1,
         role: "ai",
         text: data.content,
-        hasPreview: !!data.appData,
-        appTitle: data.appData?.appName,
-        appIcon: data.appData?.appIcon,
+        hasPreview: !!(data.appData || data.appCode),
+        appTitle: data.appData?.appName || "새 앱",
+        appIcon: data.appData?.appIcon || "✨",
         appCode: data.appCode || null,
       };
       setConversations(prev => prev.map(c =>
@@ -624,6 +674,7 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker, convers
           color: "from-violet-400 to-purple-500",
           lastUsed: "방금 전",
           category: "AI",
+          appCode: data.appCode || null,
         });
       }
     } catch (e) {
@@ -656,6 +707,11 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker, convers
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
 
+  const handleDeleteConv = useCallback((id) => {
+    setConversations(prev => prev.filter(c => c.id !== id));
+    if (currentConvId === id) setCurrentConvId(null);
+  }, [currentConvId, setConversations, setCurrentConvId]);
+
   return (
     <div className="flex flex-col h-full relative">
       <ConversationDrawer
@@ -665,6 +721,7 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker, convers
         currentConvId={currentConvId}
         onSelectConv={(id) => { setCurrentConvId(id); setDrawerOpen(false); }}
         onNewConv={handleNewConv}
+        onDeleteConv={handleDeleteConv}
       />
 
       <div className="px-5 pt-5 pb-3 flex-shrink-0">
@@ -718,11 +775,14 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker, convers
               </div>
             )}
             <div className="max-w-[78%]">
-              <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap
+              <div className={`rounded-2xl text-sm leading-relaxed whitespace-pre-wrap overflow-hidden
                 ${msg.role === "user"
                   ? "bg-gradient-to-br from-violet-600 to-purple-700 text-white rounded-br-sm"
                   : "bg-white/10 text-white/90 rounded-bl-sm"}`}>
-                {msg.text}
+                {msg.image && (
+                  <img src={msg.image} alt="첨부 이미지" className="w-full max-h-48 object-cover" />
+                )}
+                {msg.text && <p className="px-4 py-2.5">{msg.text}</p>}
               </div>
               {msg.hasPreview && msg.role === "ai" && (
                 <AppPreviewCard
@@ -740,8 +800,27 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker, convers
       </div>
 
       <div className="flex-shrink-0 px-4 pb-4 pt-2">
+        {/* 이미지 미리보기 */}
+        {attachedImage && (
+          <div className="mb-2 flex items-center gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2 fade-in">
+            <img src={attachedImage.dataUrl} alt="첨부 이미지" className="w-10 h-10 rounded-lg object-cover flex-shrink-0" />
+            <span className="text-white/60 text-xs truncate flex-1">{attachedImage.name}</span>
+            <button onClick={() => setAttachedImage(null)} className="text-white/30 hover:text-white/70 transition-colors flex-shrink-0">
+              <Icon name="close" size={14} />
+            </button>
+          </div>
+        )}
         <div className="flex items-end gap-2 bg-white/8 border border-white/10 rounded-2xl px-3 py-2">
-          <button className="text-white/40 hover:text-white/70 transition-colors p-1 flex-shrink-0 mb-0.5">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="text-white/40 hover:text-violet-400 transition-colors p-1 flex-shrink-0 mb-0.5 active:scale-90">
             <Icon name="attach" size={20} />
           </button>
           <textarea
@@ -756,9 +835,9 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker, convers
           />
           <button
             onClick={handleSend}
-            disabled={!input.trim() || isTyping}
+            disabled={(!input.trim() && !attachedImage) || isTyping}
             className={`flex-shrink-0 w-8 h-8 rounded-xl flex items-center justify-center transition-all mb-0.5
-              ${input.trim() && !isTyping
+              ${(input.trim() || attachedImage) && !isTyping
                 ? "bg-gradient-to-br from-violet-600 to-purple-700 text-white shadow-lg shadow-violet-900/50"
                 : "bg-white/10 text-white/30"}`}>
             <Icon name="send" size={14} />
@@ -770,9 +849,48 @@ const CreateTab = ({ onShareToStore, selectedModelId, onOpenModelPicker, convers
 };
 
 // ─── STORE TAB ────────────────────────────────────────────
-const StoreTab = ({ posts, setPosts }) => {
+const StoreTab = ({ posts, setPosts, onAddToLibrary, libraryApps, showToast }) => {
   const [search, setSearch] = useState("");
   const [activeTag, setActiveTag] = useState("전체");
+  const [menuPostId, setMenuPostId] = useState(null);
+  const [hiddenIds, setHiddenIds] = useState([]);
+  const [commentPostId, setCommentPostId] = useState(null);
+  const [commentInput, setCommentInput] = useState("");
+
+  const menuPost = posts.find(p => p.id === menuPostId);
+  const commentPost = posts.find(p => p.id === commentPostId);
+
+  const handleDelete = (id) => { setPosts(prev => prev.filter(p => p.id !== id)); setMenuPostId(null); };
+  const handleHide = (id) => { setHiddenIds(prev => [...prev, id]); setMenuPostId(null); };
+  const handleReport = () => { setMenuPostId(null); showToast("신고가 접수됐어요."); };
+
+  const handleShare = (post) => {
+    const text = "AppForge - " + post.appName + ": " + post.description;
+    if (navigator.share) {
+      navigator.share({ title: post.appName, text }).catch(function() {});
+    } else if (navigator.clipboard) {
+      navigator.clipboard.writeText(text).then(function() { showToast("링크가 복사됐어요!"); });
+    } else {
+      showToast("공유 기능이 지원되지 않는 환경이에요.");
+    }
+  };
+
+  const handleAddToLibrary = (post) => {
+    const already = libraryApps.find(a => a.name === post.appName);
+    if (already) { showToast("이미 라이브러리에 있어요!"); return; }
+    onAddToLibrary({ id: Date.now(), name: post.appName, icon: post.appIcon, color: post.appColor || "from-violet-400 to-purple-500", lastUsed: "방금 전", category: post.tags[0] || "AI" });
+    showToast(post.appName + " 라이브러리에 추가됐어요!");
+  };
+
+  const handleAddComment = (postId) => {
+    if (!commentInput.trim()) return;
+    setPosts(prev => prev.map(p => p.id === postId ? {
+      ...p,
+      comments: (p.comments || 0) + 1,
+      commentList: [...(p.commentList || []), { id: Date.now(), user: "나", text: commentInput.trim(), time: "방금 전" }]
+    } : p));
+    setCommentInput("");
+  };
   const tags = ["전체", "AI", "생활", "교육", "여행", "건강", "개발"];
 
   const toggleLike = (id) => {
@@ -785,13 +903,14 @@ const StoreTab = ({ posts, setPosts }) => {
   };
 
   const filtered = posts.filter(p => {
+    if (hiddenIds.includes(p.id)) return false;
     const matchSearch = p.appName.toLowerCase().includes(search.toLowerCase()) || p.description.includes(search);
     const matchTag = activeTag === "전체" || p.tags.includes(activeTag);
     return matchSearch && matchTag;
   });
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
       <div className="px-5 pt-5 pb-3 flex-shrink-0 space-y-3">
         <div className="flex items-center justify-between">
           <h1 className="text-white text-2xl font-bold">Store</h1>
@@ -844,7 +963,9 @@ const StoreTab = ({ posts, setPosts }) => {
                 <p className="text-white font-semibold text-sm">{post.user}</p>
                 <p className="text-white/40 text-xs">{post.handle}</p>
               </div>
-              <button className="text-white/40"><Icon name="more" size={20} /></button>
+              <button onClick={() => setMenuPostId(post.id)} className="text-white/40 hover:text-white/70 transition-colors p-1 -mr-1">
+                <Icon name="more" size={20} />
+              </button>
             </div>
             <div className="mx-4 rounded-2xl overflow-hidden" style={{ background: post.preview, aspectRatio: "16/9" }}>
               <div className="w-full h-full flex flex-col items-center justify-center gap-2">
@@ -862,11 +983,13 @@ const StoreTab = ({ posts, setPosts }) => {
                 <Icon name={post.liked ? "heartFill" : "heart"} size={22} className={post.liked ? "text-red-400" : "text-white/60"} />
                 <span className="text-white/60 text-sm">{post.likes}</span>
               </button>
-              <button className="flex items-center gap-1.5 p-1.5 rounded-xl">
+              <button onClick={() => setCommentPostId(post.id)} className="flex items-center gap-1.5 p-1.5 rounded-xl active:scale-90 transition-transform">
                 <Icon name="comment" size={20} className="text-white/60" />
                 <span className="text-white/60 text-sm">{post.comments}</span>
               </button>
-              <button className="p-1.5 rounded-xl"><Icon name="share" size={20} className="text-white/60" /></button>
+              <button onClick={() => handleShare(post)} className="p-1.5 rounded-xl active:scale-90 transition-transform">
+                <Icon name="share" size={20} className="text-white/60" />
+              </button>
               <button onClick={() => toggleSave(post.id)} className="p-1.5 rounded-xl ml-auto active:scale-90">
                 <Icon name={post.saved ? "bookmarkFill" : "bookmark"} size={20} className={post.saved ? "text-violet-400" : "text-white/60"} />
               </button>
@@ -878,7 +1001,7 @@ const StoreTab = ({ posts, setPosts }) => {
                   <span key={tag} className="px-2 py-0.5 rounded-full bg-violet-500/20 text-violet-300 text-xs">#{tag}</span>
                 ))}
               </div>
-              <button className="w-full mt-3 py-2.5 rounded-xl bg-white/8 border border-white/10 text-white/70 text-sm font-medium flex items-center justify-center gap-2">
+              <button onClick={() => handleAddToLibrary(post)} className="w-full mt-3 py-2.5 rounded-xl bg-white/8 border border-white/10 text-white/70 text-sm font-medium flex items-center justify-center gap-2 active:scale-[0.98] transition-all hover:bg-white/12">
                 <Icon name="download" size={16} />
                 라이브러리에 추가
               </button>
@@ -887,6 +1010,99 @@ const StoreTab = ({ posts, setPosts }) => {
         ))}
         <div className="h-2"></div>
       </div>
+
+      {/* 댓글 바텀시트 */}
+      {commentPostId && commentPost && (
+        <div className="absolute inset-0 z-50 flex items-end sheet-overlay"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+          onClick={() => { setCommentPostId(null); setCommentInput(""); }}>
+          <div className="w-full bg-[#13131c] rounded-t-3xl border-t border-white/8 flex flex-col sheet-panel" style={{ maxHeight: "75vh" }} onClick={e => e.stopPropagation()}>
+            <div className="flex justify-center pt-3"><div className="w-10 h-1 rounded-full bg-white/20" /></div>
+            <div className="flex items-center justify-between px-5 py-3 border-b border-white/8 flex-shrink-0">
+              <h3 className="text-white font-bold">댓글 {commentPost.comments}개</h3>
+              <button onClick={() => { setCommentPostId(null); setCommentInput(""); }} className="text-white/40"><Icon name="close" size={18} /></button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-3 space-y-4">
+              {(commentPost.commentList || []).length === 0 ? (
+                <p className="text-white/30 text-sm text-center py-8">첫 댓글을 남겨보세요 💬</p>
+              ) : (commentPost.commentList || []).map(c => (
+                <div key={c.id} className="flex gap-3">
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center text-xs font-bold text-white flex-shrink-0">나</div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-white text-xs font-semibold">{c.user}</span>
+                      <span className="text-white/30 text-xs">{c.time}</span>
+                    </div>
+                    <p className="text-white/80 text-sm mt-0.5">{c.text}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 px-4 py-3 border-t border-white/8 flex-shrink-0">
+              <input
+                value={commentInput}
+                onChange={e => setCommentInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAddComment(commentPostId)}
+                placeholder="댓글 입력..."
+                className="flex-1 bg-white/8 border border-white/10 rounded-xl px-3 py-2 text-white text-sm placeholder-white/30 outline-none focus:border-violet-500/60"
+              />
+              <button onClick={() => handleAddComment(commentPostId)}
+                disabled={!commentInput.trim()}
+                className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all ${commentInput.trim() ? "bg-violet-600 text-white" : "bg-white/8 text-white/30"}`}>
+                등록
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 삼점 메뉴 바텀시트 */}
+      {menuPostId && menuPost && (
+        <div className="absolute inset-0 z-50 flex items-end sheet-overlay"
+          style={{ background: "rgba(0,0,0,0.6)" }}
+          onClick={() => setMenuPostId(null)}>
+          <div className="w-full bg-[#13131c] rounded-t-3xl border-t border-white/8 pb-6 sheet-panel" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-center pt-3 pb-4">
+              <div className="w-10 h-1 rounded-full bg-white/20" />
+            </div>
+            {/* 포스트 미리보기 */}
+            <div className="flex items-center gap-3 px-5 pb-4 border-b border-white/8">
+              <span className="text-2xl">{menuPost.appIcon}</span>
+              <div>
+                <p className="text-white font-semibold text-sm">{menuPost.appName}</p>
+                <p className="text-white/40 text-xs">{menuPost.user}</p>
+              </div>
+            </div>
+            {/* 내 게시물: 삭제 */}
+            {menuPost.user === "나" && (
+              <button onClick={() => handleDelete(menuPost.id)}
+                className="w-full flex items-center gap-4 px-5 py-4 text-red-400 hover:bg-white/5 transition-colors">
+                <Icon name="trash" size={20} />
+                <span className="text-sm font-medium">삭제하기</span>
+              </button>
+            )}
+            {/* 다른 사람 게시물: 관심없음 + 신고 */}
+            {menuPost.user !== "나" && (
+              <>
+                <button onClick={() => handleHide(menuPost.id)}
+                  className="w-full flex items-center gap-4 px-5 py-4 text-white/70 hover:bg-white/5 transition-colors">
+                  <Icon name="close" size={20} />
+                  <span className="text-sm font-medium">관심 없음</span>
+                </button>
+                <button onClick={() => handleReport(menuPost.id)}
+                  className="w-full flex items-center gap-4 px-5 py-4 text-red-400 hover:bg-white/5 transition-colors">
+                  <Icon name="notification" size={20} />
+                  <span className="text-sm font-medium">신고하기</span>
+                </button>
+              </>
+            )}
+            <button onClick={() => setMenuPostId(null)}
+              className="mx-5 mt-2 w-[calc(100%-40px)] py-3 rounded-2xl bg-white/8 text-white/60 text-sm font-medium">
+              취소
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -894,6 +1110,33 @@ const StoreTab = ({ posts, setPosts }) => {
 // ─── LIBRARY TAB ──────────────────────────────────────────
 const LibraryTab = ({ apps, setApps }) => {
   const [search, setSearch] = useState("");
+  const [runningApp, setRunningApp] = useState(null);
+  const [showMenu, setShowMenu] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+
+  const enterSelectMode = useCallback(() => {
+    setShowMenu(false);
+    setSelectMode(true);
+    setSelectedIds([]);
+  }, []);
+
+  const cancelSelect = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds([]);
+  }, []);
+
+  const toggleSelect = useCallback((id) => {
+    setSelectedIds(prev =>
+      prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+    );
+  }, []);
+
+  const handleDelete = useCallback(() => {
+    setApps(prev => prev.filter(a => !selectedIds.includes(a.id)));
+    setSelectMode(false);
+    setSelectedIds([]);
+  }, [selectedIds, setApps]);
 
   const filtered = apps.filter(app =>
     app.name.toLowerCase().includes(search.toLowerCase()) || app.category.includes(search)
@@ -902,14 +1145,26 @@ const LibraryTab = ({ apps, setApps }) => {
   return (
     <div className="flex flex-col h-full">
       <div className="px-5 pt-5 pb-3 flex-shrink-0 space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between relative">
           <div>
             <h1 className="text-white text-2xl font-bold">Library</h1>
             <p className="text-white/40 text-sm mt-0.5">{apps.length}개의 앱이 있어요</p>
           </div>
-          <button className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-purple-700 flex items-center justify-center glow">
-            <Icon name="plus" size={18} className="text-white" />
+          <button
+            onClick={() => setShowMenu(v => !v)}
+            className="w-9 h-9 rounded-xl bg-white/8 border border-white/10 flex items-center justify-center text-white/60">
+            <Icon name="more" size={20} />
           </button>
+          {showMenu && (
+            <div className="absolute right-0 top-11 z-20 bg-[#1a1a2e] border border-white/10 rounded-2xl shadow-xl overflow-hidden fade-in">
+              <button
+                onClick={enterSelectMode}
+                className="flex items-center gap-3 px-4 py-3 text-white text-sm hover:bg-white/8 w-full text-left">
+                <Icon name="trash" size={16} className="text-red-400" />
+                선택 삭제
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2 bg-white/8 border border-white/10 rounded-xl px-3 py-2">
           <Icon name="search" size={16} className="text-white/40 flex-shrink-0" />
@@ -920,60 +1175,77 @@ const LibraryTab = ({ apps, setApps }) => {
       </div>
 
       <div className="flex-1 overflow-y-auto chat-scroll px-5 pb-4">
-        {!search && (
-          <div className="mb-6">
-            <h2 className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-3">최근 사용</h2>
-            <div className="grid grid-cols-2 gap-3">
-              {filtered.slice(0, 2).map(app => (
-                <button key={app.id} className="bg-white/5 border border-white/8 rounded-2xl p-4 text-left card-hover fade-in">
-                  <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${app.color} flex items-center justify-center mb-3 text-xl`}>
-                    {app.icon}
-                  </div>
-                  <p className="text-white font-semibold text-sm">{app.name}</p>
-                  <p className="text-white/40 text-xs mt-0.5">{app.lastUsed}</p>
-                </button>
-              ))}
-            </div>
+        {filtered.length === 0 ? (
+          <div className="text-center py-16 text-white/30">
+            <Icon name="search" size={40} className="mx-auto mb-3 opacity-30" />
+            <p className="text-sm">{search ? "앱을 찾을 수 없어요" : "아직 앱이 없어요"}</p>
           </div>
-        )}
-        <div>
-          <h2 className="text-white/60 text-xs font-semibold uppercase tracking-wider mb-3">
-            {search ? "검색 결과" : "모든 앱"}
-          </h2>
-          {filtered.length === 0 ? (
-            <div className="text-center py-16 text-white/30">
-              <Icon name="search" size={40} className="mx-auto mb-3 opacity-30" />
-              <p className="text-sm">앱을 찾을 수 없어요</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {filtered.map(app => (
-                <div key={app.id} className="flex items-center gap-3 p-3 rounded-2xl bg-white/5 border border-white/8 card-hover fade-in">
-                  <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${app.color} flex items-center justify-center text-xl flex-shrink-0`}>
-                    {app.icon}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-white font-semibold text-sm">{app.name}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-white/40 text-xs">{app.lastUsed}</span>
-                      <span className="w-1 h-1 rounded-full bg-white/20"></span>
-                      <span className="text-violet-400/70 text-xs">{app.category}</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-1 flex-shrink-0">
-                    <button className="w-8 h-8 rounded-xl bg-violet-600/20 flex items-center justify-center">
-                      <Icon name="play" size={12} className="text-violet-400 ml-0.5" />
-                    </button>
-                    <button className="w-8 h-8 rounded-xl bg-white/8 flex items-center justify-center">
-                      <Icon name="more" size={14} className="text-white/40" />
-                    </button>
-                  </div>
-                </div>
-              ))}
+        ) : (
+          <>
+          {selectMode && (
+            <div className="mb-4 px-1 py-2 bg-violet-600/20 border border-violet-500/30 rounded-xl text-center">
+              <p className="text-violet-300 text-xs font-medium">삭제할 앱을 탭해서 선택하세요</p>
             </div>
           )}
-        </div>
+          <div className="grid grid-cols-4 gap-4">
+            {filtered.map(app => {
+              const isSelected = selectedIds.includes(app.id);
+              return (
+                <div
+                  key={app.id}
+                  className="flex flex-col items-center gap-2 fade-in cursor-pointer"
+                  onClick={() => {
+                    if (selectMode) {
+                      toggleSelect(app.id);
+                    } else if (app.appCode) {
+                      setRunningApp({ appCode: app.appCode, name: app.name });
+                    }
+                  }}>
+                  <div className="relative">
+                    <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${app.color} flex items-center justify-center text-2xl shadow-lg transition-all
+                      ${selectMode && isSelected ? "ring-2 ring-violet-400 ring-offset-2 ring-offset-[#0a0a0f] scale-95" : ""}`}>
+                      {app.icon}
+                    </div>
+                    {selectMode && (
+                      <div className={`absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full border-2 flex items-center justify-center shadow
+                        ${isSelected ? "bg-violet-500 border-violet-500" : "bg-[#13131c] border-white/40"}`}>
+                        {isSelected && <Icon name="check" size={10} className="text-white" />}
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-white/80 text-xs font-medium text-center leading-tight line-clamp-2 w-full">{app.name}</p>
+                </div>
+              );
+            })}
+          </div>
+          </>
+        )}
       </div>
+      {/* 선택 삭제 하단 바 */}
+      {selectMode && (
+        <div className="flex-shrink-0 px-4 pb-4 pt-3 border-t border-white/8 fade-in">
+          <p className="text-white/60 text-xs text-center mb-3">
+            {selectedIds.length > 0 ? `${selectedIds.length}개 선택됨 — 삭제하겠습니까?` : "삭제할 앱을 선택하세요"}
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={cancelSelect}
+              className="flex-1 py-3 rounded-2xl bg-white/10 text-white/70 text-sm font-semibold">
+              취소
+            </button>
+            <button
+              onClick={handleDelete}
+              disabled={selectedIds.length === 0}
+              className={`flex-1 py-3 rounded-2xl text-white text-sm font-semibold transition-all
+                ${selectedIds.length > 0 ? "bg-red-500 active:scale-98" : "bg-red-500/30 text-white/30"}`}>
+              삭제
+            </button>
+          </div>
+        </div>
+      )}
+      {runningApp && (
+        <RunModal appCode={runningApp.appCode} appTitle={runningApp.name} onClose={() => setRunningApp(null)} />
+      )}
     </div>
   );
 };
@@ -998,6 +1270,11 @@ const App = () => {
       return [appItem, ...prev];
     });
   }, [setLibraryApps]);
+
+  const handleShowToast = useCallback((msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }, []);
 
   const handleConfirmShare = useCallback((data) => {
     const newPost = {
@@ -1070,7 +1347,7 @@ const App = () => {
               onAddToLibrary={handleAddToLibrary}
             />
           )}
-          {activeTab === "store"   && <StoreTab posts={posts} setPosts={setPosts} />}
+          {activeTab === "store" && <StoreTab posts={posts} setPosts={setPosts} onAddToLibrary={handleAddToLibrary} libraryApps={libraryApps} showToast={handleShowToast} />}
           {activeTab === "library" && <LibraryTab apps={libraryApps} setApps={setLibraryApps} />}
         </div>
 
